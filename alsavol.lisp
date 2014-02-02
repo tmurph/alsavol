@@ -43,19 +43,19 @@
 (defvar *alsavol-control* "Master"
   "The control used when changing the volume or muting a sink")
 
-(defun volume ()
+(defun volume (&optional (control *alsavol-control*))
   (ppcre:register-groups-bind (volume)
       ("\\[(.*?)%\\]"
        (stumpwm:run-shell-command
-        (format nil "amixer get ~a" *alsavol-control*) t))
+        (format nil "amixer get ~a" control) t))
     (when volume
       (parse-integer volume))))
 
-(defun mutep ()
+(defun mutep (&optional (control *alsavol-control*))
   (ppcre:register-groups-bind (mutep)
       ("\\[(on|off)\\]"
        (stumpwm:run-shell-command
-        (format nil "amixer get ~a" *alsavol-control*) t))
+        (format nil "amixer get ~a" control) t))
     (when mutep
       (string= "off" mutep))))
 
@@ -68,21 +68,21 @@
      (format nil "amixer set ~a ~a%~a"
              *alsavol-control* percentage sign))))
 
-(defun toggle-mute-1 ()
+(defun toggle-mute-1 (&optional (control *alsavol-control*))
   (stumpwm:run-shell-command
-   (format nil "amixer set ~a toggle" *alsavol-control*)))
+   (format nil "amixer set ~a toggle" control)))
 
 (defun make-volume-bar (percent)
   (format nil "^B~3d%^b [^[^7*~a^]]"
           percent (stumpwm::bar percent 50 #\# #\:)))
 
-(defun show-volume-bar ()
-  (let ((percent (volume)))
-    (funcall (if (interactivep)
-                 #'stumpwm::message-no-timeout
-                 #'stumpwm:message)
-             (format nil "~:[OPEN~;MUTED~]~%~a"
-                     (mutep) (make-volume-bar percent)))))
+(defun show-volume-bar (&optional (control *alsavol-control*))
+  (funcall (if (interactivep)
+               #'stumpwm::message-no-timeout
+               #'stumpwm:message)
+           (format nil "~a ~:[OPEN~;MUTED~]~%~a"
+                   control (mutep control)
+                   (make-volume-bar (volume control)))))
 
 (defun volume-up (percentage)
   (set-volume percentage +1)
