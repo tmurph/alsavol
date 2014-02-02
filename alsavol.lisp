@@ -25,13 +25,24 @@
 ;;; + alsavol-vol+
 ;;; + alsavol-vol-
 ;;; + alsavol-toggle-mute
+;;; + alsavol-interactive
+;;; + alsavol-exit-interactive
+;;; + alsavol-application-list
 
-;;; For this to work you probably want to assign appropriate keys in your
-;;; `.stumpwmrc'. For example:
+;;; The first three commands are supposed to be used via multimedia keys.  You
+;;; probably want to assign appropriate keys in your `.stumpwmrc', e.g.
 
 ;;;   (define-key *top-map*
 ;;;               (kbd "XF86AudioRaiseVolume")
 ;;;               "alsavol-vol+")
+
+;;; `alsavol-interactive' can be used if you don't have or don't want to use
+;;; the media keys.  Once called, you can use `j', `k' and `m' keys to control
+;;; the volume and exit the interactive mode using `ESC', `RET' or `C-g'.
+
+;;; With `alsavol-control-list' you can list the mixer controls that can have
+;;; their volume changed by amixer.  Navigate the menu using `j' and `k' keys
+;;; and select the desired control using `RET'.
 
 ;;;; Code:
 
@@ -40,8 +51,50 @@
 
 (in-package #:alsavol)
 
+(defparameter *alsavol-keymap*
+  (let ((m (stumpwm:make-sparse-keymap)))
+    (labels ((dk (k c)
+               (stumpwm:define-key m k c)))
+      (dk (stumpwm:kbd "j") "alsavol-vol-")
+      (dk (stumpwm:kbd "k") "alsavol-vol+")
+      (dk (stumpwm:kbd "m") "alsavol-toggle-mute")
+      (dk (stumpwm:kbd "RET") "alsavol-exit-interactive")
+      (dk (stumpwm:kbd "C-g") "alsavol-exit-interactive")
+      (dk (stumpwm:kbd "ESC") "alsavol-exit-interactive")
+      m)))
+
+(defparameter *alsavol-application-list-keymap*
+  (let ((m (stumpwm::copy-kmap stumpwm::*menu-map*)))
+    (labels ((dk (k c)
+               (stumpwm:define-key m k c)))
+      (dk (stumpwm:kbd "j") 'stumpwm::menu-down)
+      (dk (stumpwm:kbd "k") 'stumpwm::menu-up)
+      m)))
+
 (defvar *alsavol-control* "Master"
   "The control used when changing the volume or muting a sink")
+
+(defun set-interactive (&optional (control "Master"))
+  (setf *alsavol-control* control)
+  (stumpwm::push-top-map *alsavol-keymap*))
+
+(defun unset-interactive ()
+  (setf *alsavol-control* "Master")
+  (stumpwm::pop-top-map))
+
+(defun interactivep ()
+  (equal stumpwm:*top-map* *alsavol-keymap*))
+
+(defun control-list-table ()
+  (let (table)
+    (ppcre:do-matches-as-strings
+        (name "\\w+(?= Playback Volume)"
+              (stumpwm:run-shell-command "amixer contents" t)
+              (nreverse table))
+      (push (cons
+             (format nil "~10a ~:[OPEN ~;MUTED~] ~a"
+                     name (mutep name) (make-volume-bar (volume name)))
+             name) table))))
 
 (defun volume (&optional (control *alsavol-control*))
   (ppcre:register-groups-bind (volume)
@@ -109,3 +162,24 @@
 (stumpwm:defcommand alsavol-toggle-mute () ()
   "Toggle mute."
   (toggle-mute))
+
+(stumpwm:defcommand alsavol-exit-interactive () ()
+  "Exit the interactive mode for changing the volume"
+  (unset-interactive))
+
+(stumpwm:defcommand alsavol-interactive () ()
+  "Change the volume interactively using `j', `k' and `m' keys"
+  (set-interactive)
+  (show-volume-bar))
+
+(stumpwm:defcommand alsavol-control-list () ()
+  "Choose from a list of simple mixer controls."
+  (let ((controls (control-list-table)))
+    (if (null controls)
+        (stumpwm:message "No application is running")
+        (let* ((stumpwm::*menu-map* *alsavol-application-list-keymap*)
+               (sink (stumpwm::select-from-menu (stumpwm:current-screen)
+                                                controls)))
+          (when sink
+            (set-interactive (cdr sink))
+            (show-volume-bar))))))
